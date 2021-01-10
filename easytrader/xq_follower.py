@@ -10,12 +10,13 @@ from threading import Thread
 from easytrader.follower import BaseFollower
 from easytrader.log import logger
 from easytrader.utils.misc import parse_cookies_str
-
+import pymysql
+import decimal
 
 class XueQiuFollower(BaseFollower):
     LOGIN_PAGE = "https://www.xueqiu.com"
     LOGIN_API = "https://xueqiu.com/snowman/login"
-    TRANSACTION_API = "https://xueqiu.com/cubes/rebalancing/history.json"
+    TRANSACTION_API = "https://xueqiu.com/service/tc/snowx/PAMID/cubes/rebalancing/history"
     PORTFOLIO_URL = "https://xueqiu.com/p/"
     WEB_REFERER = "https://www.xueqiu.com"
 
@@ -50,7 +51,7 @@ class XueQiuFollower(BaseFollower):
         self,
         users,
         strategies,
-        total_assets=10000,
+        total_assets=None,
         initial_assets=None,
         adjust_sell=False,
         track_interval=10,
@@ -143,21 +144,26 @@ class XueQiuFollower(BaseFollower):
         return rep.json()[info_index]["name"]
 
     def extract_transactions(self, history):
+        # logger.info(history)
+        if history is None:
+            return []
         if history["count"] <= 0:
             return []
-        rebalancing_index = 0
-        raw_transactions = history["list"][rebalancing_index]["rebalancing_histories"]
-        transactions = []
-        for transaction in raw_transactions:
-            if transaction["price"] is None:
-                logger.info("该笔交易无法获取价格，疑似未成交，跳过。交易详情: %s", transaction)
-                continue
-            transactions.append(transaction)
 
+        transactions = []
+        rebalancing_index = 0
+        for i in history["list"]:
+            raw_transactions = history["list"][rebalancing_index]["rebalancing_histories"]
+            for transaction in raw_transactions:
+                if transaction["price"] is None:
+                    logger.info("该笔交易无法获取价格，疑似未成交，跳过。交易详情: %s", transaction)
+                    continue
+                transactions.append(transaction)
+            rebalancing_index += 1
         return transactions
 
     def create_query_transaction_params(self, strategy):
-        params = {"cube_symbol": strategy, "page": 1, "count": 1}
+        params = {"cube_symbol": strategy, "page": 1, "count": 20}
         return params
 
     # noinspection PyMethodOverriding
@@ -168,26 +174,97 @@ class XueQiuFollower(BaseFollower):
 
     # noinspection PyMethodOverriding
     def project_transactions(self, transactions, assets):
+
+        logger.info("总额：" + str(assets))
+        # 打开数据库连接
+        db = pymysql.connect("localhost", "root", "root", "xueqiu")
+
+        sql_operation = ""
         for transaction in transactions:
-            weight_diff = self.none_to_zero(transaction["weight"]) - self.none_to_zero(
-                transaction["prev_weight"]
+            weight_diff = self.none_to_zero(transaction["target_weight"]) - self.none_to_zero(
+                transaction["prev_weight_adjusted"]
             )
 
             initial_amount = abs(weight_diff) / 100 * assets / transaction["price"]
 
             transaction["datetime"] = datetime.fromtimestamp(
-                transaction["created_at"] // 1000
+                transaction["updated_at"] // 1000
             )
 
             transaction["stock_code"] = transaction["stock_symbol"].lower()
-
-            transaction["action"] = "buy" if weight_diff > 0 else "sell"
-
+            transaction["action"] = "买入" if weight_diff > 0 else "卖出"
             transaction["amount"] = int(round(initial_amount, -2))
-            if transaction["action"] == "sell" and self._adjust_sell:
+            if transaction["action"] == "卖出" and self._adjust_sell:
                 transaction["amount"] = self._adjust_sell_amount(
                     transaction["stock_code"], transaction["amount"]
                 )
+            logger.info("动作：" + str(transaction["action"]))
+            logger.info("股票类型：" + str(transaction["stock_label"]))
+            logger.info("股票名称：" + str(transaction["stock_name"]))
+            logger.info("股票号：" + str(transaction["stock_symbol"]))
+            logger.info("调仓前百分比：" + str(transaction["prev_weight_adjusted"]))
+            logger.info("调仓后百分比：" + str(transaction["target_weight"]))
+            logger.info("百分比：" + str(abs(weight_diff)))
+            logger.info("数量：" + str(int(round(initial_amount, -2))))
+            logger.info("价格：" + str(transaction["price"]))
+            logger.info("时间：" + str(transaction["datetime"]))
+            # 使用cursor()方法获取操作游标
+            cursor = db.cursor()
+            # 类似于其他语言的 query 函数，execute 是 python 中的执行查询函数
+            cursor.execute("SELECT * FROM xq_operation where STOCK_CODE = '"+str(transaction["stock_symbol"]) +"' and  OPERATION_TIME = '" + str(transaction["datetime"]) + "' " )
+            # 使用 fetchall 函数，将结果集（多维元组）存入 rows 里面
+            rows = cursor.fetchall()
+            if(len(rows)<=0):
+                sql_operation = """INSERT IGNORE  INTO xq_operation(
+                ACCOUNT_ID,STOCK_NAME, STOCK_CODE, STOCK_OPERATION, STOCK_PRICE, STOCK_COUNT, START_REPERTORY, END_REPERTORY, OPERATION_TIME, IS_DEL)
+                VALUES ('1','{}','{}','{}',{},{},{},{},'{}','0')""".format(str(transaction["stock_name"]), str(transaction["stock_symbol"]), str(transaction["action"]), transaction["price"], decimal.Decimal(int(round(initial_amount, -2))), transaction["prev_weight_adjusted"], transaction["target_weight"], str(transaction["datetime"]))
+                try:
+                    if(sql_operation!=""):
+                       logger.info(sql_operation)
+                       cursor.execute(sql_operation)  # 执行sql语句
+                except Exception:
+                    logger.error("发生异常1", Exception)
+                    # db.rollback()  # 如果发生错误则回滚
+            # 类似于其他语言的 query 函数，execute 是 python 中的执行查询函数
+            cursor.execute("SELECT * FROM xq_history where STOCK_CODE = '" + str(transaction["stock_symbol"]) + "' ")
+            # 使用 fetchall 函数，将结果集（多维元组）存入 rows 里面
+            rowss = cursor.fetchall()
+            IS_HAS = 0
+            if (str(transaction["target_weight"]) is "0.00" or str(transaction["target_weight"]) is "0" or str(
+                    transaction["target_weight"]) is "0.0"):
+                IS_HAS = 1
+
+            if (len(rowss) > 0):
+                sql_operation = """update xq_history set STOCK_PRICE = {}, STOCK_COUNT = {}, START_REPERTORY = {}, HISTORY_TIME = '{}', IS_HAS = '{}'  where STOCK_CODE = '{}' """.format(
+                    str(transaction["price"]), decimal.Decimal(int(round(initial_amount, -2))), str(transaction["target_weight"]),
+                    str(transaction["datetime"]), IS_HAS, str(transaction["stock_symbol"]))
+                try:
+                    if (sql_operation != ""):
+                        logger.info(sql_operation)
+                        cursor.execute(sql_operation)  # 执行sql语句
+                except Exception:
+                    logger.error("发生异常2", Exception)
+            else:
+                sql_operation = """INSERT IGNORE  INTO xq_history(
+                                ACCOUNT_ID,STOCK_NAME, STOCK_CODE, STOCK_COUNT, START_REPERTORY, HISTORY_TIME, IS_HAS, IS_DEL)
+                                VALUES ('1','{}','{}','{}',{},'{}',{},'0')""".format(
+                    str(transaction["stock_name"]), str(transaction["stock_symbol"]), decimal.Decimal(int(round(initial_amount, -2))),
+                    transaction["target_weight"], str(transaction["datetime"]),
+                    IS_HAS, '0')
+                try:
+                    if (sql_operation != ""):
+                        logger.info(sql_operation)
+                        cursor.execute(sql_operation)  # 执行sql语句
+                except Exception:
+                    logger.error("发生异常3", Exception)
+        cursor.execute("update xq_account set TOTAL_BALANCE = {} where  ACCOUNT_ID = '1' ".format(assets))
+        db.commit()  # 提交到数据库执行
+        # 关闭数据库连接
+        db.close()
+
+
+
+        # logger.info("测试：" + str(transactions))
 
     def _adjust_sell_amount(self, stock_code, amount):
         """
@@ -203,16 +280,19 @@ class XueQiuFollower(BaseFollower):
         :return: 考虑实际持仓之后的卖出股份数
         :rtype: int
         """
-        stock_code = stock_code[-6:]
+        # stock_code = stock_code[-6:]
         user = self._users[0]
+
         position = user.position
+        # logger.info(position)
+        # logger.info(stock_code)
         try:
-            stock = next(s for s in position if s["证券代码"] == stock_code)
+            stock = next(s for s in position if s["stock_code"].upper() == stock_code.upper())
         except StopIteration:
             logger.info("根据持仓调整 %s 卖出额，发现未持有股票 %s, 不做任何调整", stock_code, stock_code)
             return amount
 
-        available_amount = stock["可用余额"]
+        available_amount = stock["enable_amount"]
         if available_amount >= amount:
             return amount
 

@@ -313,9 +313,11 @@ server.run(port=1430) # 默认端口为 1430
 #### 量化策略端——调用服务
 
 ```python
+import easytrader
 from easytrader import remoteclient
 
 user = remoteclient.use('使用客户端类型，可选 yh_client, ht_client, ths, xq等', host='服务器ip', port='服务器端口，默认为1430')
+user = remoteclient.use('xq', host='127.0.0.1', port='1430')
 
 user.buy(......)
 
@@ -363,8 +365,7 @@ follower.follow(xq_user, 'jq的模拟交易url')
 注: 启动后发现跟踪策略无输出，那是因为今天模拟交易没有调仓或者接收到的调仓信号过期了，默认只处理120s内的信号，想要测试的可以用下面的命令：
 
 ```python
-jq_follower.follow(user, '模拟交易url',
-          trade_cmd_expire_seconds=100000000000, cmd_cache=False)
+jq_follower.follow(user, '模拟交易url',trade_cmd_expire_seconds=100000000000, cmd_cache=False)
 ```
 
 - trade_cmd_expire_seconds 默认处理多少秒内的信号

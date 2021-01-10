@@ -362,7 +362,9 @@ class BaseFollower(metaclass=abc.ABCMeta):
         history = rep.json()
 
         transactions = self.extract_transactions(history)
+        # logger.info(transactions)
         self.project_transactions(transactions, **kwargs)
+
         return self.order_transactions_sell_first(transactions)
 
     def extract_transactions(self, history) -> List[str]:
@@ -400,8 +402,10 @@ class BaseFollower(metaclass=abc.ABCMeta):
     def order_transactions_sell_first(self, transactions):
         # 调整调仓记录的顺序为先卖再买
         sell_first_transactions = []
+
         for transaction in transactions:
-            if transaction["action"] == "sell":
+            logger.info("testtttt：" + str(transaction))
+            if transaction["action"] == "卖出":
                 sell_first_transactions.insert(0, transaction)
             else:
                 sell_first_transactions.append(transaction)
