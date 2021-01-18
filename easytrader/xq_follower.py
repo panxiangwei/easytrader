@@ -177,7 +177,7 @@ class XueQiuFollower(BaseFollower):
 
         logger.info("总额：" + str(assets))
         # 打开数据库连接
-        db = pymysql.connect("localhost", "root", "root", "xueqiu")
+        db = pymysql.connect("localhost", "root", "sa123$", "xueqiu")
 
         sql_operation = ""
         for transaction in transactions:
@@ -186,6 +186,7 @@ class XueQiuFollower(BaseFollower):
             )
 
             initial_amount = abs(weight_diff) / 100 * assets / transaction["price"]
+            crrut_amount = abs(self.none_to_zero(transaction["target_weight"])) / 100 * assets / transaction["price"]
 
             transaction["datetime"] = datetime.fromtimestamp(
                 transaction["updated_at"] // 1000
@@ -235,8 +236,8 @@ class XueQiuFollower(BaseFollower):
                 IS_HAS = 1
 
             if (len(rowss) > 0):
-                sql_operation = """update xq_history set STOCK_PRICE = {}, STOCK_COUNT = {}, START_REPERTORY = {}, HISTORY_TIME = '{}', IS_HAS = '{}'  where STOCK_CODE = '{}' """.format(
-                    str(transaction["price"]), decimal.Decimal(int(round(initial_amount, -2))), str(transaction["target_weight"]),
+                sql_operation = """update xq_history set  STOCK_COUNT = {}, START_REPERTORY = {}, HISTORY_TIME = '{}', IS_HAS = '{}'  where STOCK_CODE = '{}' """.format(
+                     decimal.Decimal(int(round(crrut_amount, -2))), str(transaction["target_weight"]),
                     str(transaction["datetime"]), IS_HAS, str(transaction["stock_symbol"]))
                 try:
                     if (sql_operation != ""):
@@ -257,6 +258,7 @@ class XueQiuFollower(BaseFollower):
                         cursor.execute(sql_operation)  # 执行sql语句
                 except Exception:
                     logger.error("发生异常3", Exception)
+                db.commit()  # 提交到数据库执行
         cursor.execute("update xq_account set TOTAL_BALANCE = {} where  ACCOUNT_ID = '1' ".format(assets))
         db.commit()  # 提交到数据库执行
         # 关闭数据库连接
