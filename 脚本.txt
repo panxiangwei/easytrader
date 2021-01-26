@@ -1,8 +1,0 @@
-import easytrader
-from easytrader import remoteclient
-xq_user = easytrader.use('xq', initial_assets=966600)
-xq_user.prepare('xq.json')
-xq_user.balance
-xq_follower = easytrader.follower('xq')
-xq_follower.login(cookies='_ga=GA1.2.1013282943.1558852956; device_id=24700f9f1986800ab4fcc880530dd0ed; s=dl11djelwg; __utmz=1.1607153112.1.1.utmcsr=(direct)|utmccn=(direct)|utmcmd=(none); cookiesu=181608812599516; bid=2b4ce95cae2d2b592e34b584ec6a2003_kj4dicr1; remember=1; xq_a_token=21ede6a38a479ac16033e4a170e056538790099a; xq_id_token=eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJ1aWQiOjM0MjI2ODg5MzQsImlzcyI6InVjIiwiZXhwIjoxNjExMzg1MzM3LCJjdG0iOjE2MDk0NzQ3MTk2NzQsImNpZCI6ImQ5ZDBuNEFadXAifQ.lZlYLQN2HdXKV8aGMxf7_j6T9SRiigLr7K-FMrtUI6FAmioEGI2vmd4pk7OeLmv8jS077_mNayOWk86nRU3bY56LxYHsDKIiwQoxcHaeX08ZPr55WuDvIYGN8KWoaA2E5Dzrcxp40VujiRAMw4nOnWZ4RrsAKmiAb3jHdsSh37gTL6jFW7KMFmQDLN1PWY7wNgK8DN1OcibJa1t8dDr3j9ZKuJW9qZPFyebZKoAj8iKAQ57j6rHhcUVIMS9oY-C7lSo-QDGBYyHCprFRSnNbIyn8j02HNMSmmEs9FKiAsXPdggd5Ij8OofElHmlWL5bEa2Oug1piRf2xnDOYmaS25Q; xqat=21ede6a38a479ac16033e4a170e056538790099a; xq_r_token=e94987e5cc2e499fbce2ea489db46e43e753d11a; xq_is_login=1; u=3422688934; acw_tc=2760820616096473352637885ee1e51aa2384511211bb09e2c79b2f41bd138; Hm_lvt_1db88642e346389874251b5a1eded6e3=1609046614,1609474709,1609589987,1609647338; __utma=1.1013282943.1558852956.1609598899.1609647338.8; __utmc=1; __utmt=1; Hm_lpvt_1db88642e346389874251b5a1eded6e3=1609647345; __utmb=1.2.10.1609647338')
-xq_follower.follow(xq_user, 'SP1000610', initial_assets=966600,adjust_sell=False,cmd_cache=False)

@@ -404,7 +404,7 @@ class BaseFollower(metaclass=abc.ABCMeta):
         sell_first_transactions = []
 
         for transaction in transactions:
-            logger.info("testtttt：" + str(transaction))
+            # logger.info("testtttt：" + str(transaction))
             if transaction["action"] == "卖出":
                 sell_first_transactions.insert(0, transaction)
             else:

@@ -17,6 +17,7 @@ class XueQiuFollower(BaseFollower):
     LOGIN_PAGE = "https://www.xueqiu.com"
     LOGIN_API = "https://xueqiu.com/snowman/login"
     TRANSACTION_API = "https://xueqiu.com/service/tc/snowx/PAMID/cubes/rebalancing/history"
+    SEARCH_STOCK_URL = "https://xueqiu.com/stock/p/search.json"
     PORTFOLIO_URL = "https://xueqiu.com/p/"
     WEB_REFERER = "https://www.xueqiu.com"
 
@@ -44,6 +45,12 @@ class XueQiuFollower(BaseFollower):
 
         cookie_dict = parse_cookies_str(cookies)
         self.s.cookies.update(cookie_dict)
+
+        # self.account_config = {
+        #     "cookies": kwargs["cookies"],
+        #     "portfolio_code": kwargs["portfolio_code"],
+        #     "portfolio_market": kwargs["portfolio_market"],
+        # }
 
         logger.info("登录成功")
 
@@ -208,6 +215,7 @@ class XueQiuFollower(BaseFollower):
             logger.info("百分比：" + str(abs(weight_diff)))
             logger.info("数量：" + str(int(round(initial_amount, -2))))
             logger.info("价格：" + str(transaction["price"]))
+            logger.info("成本：" + str(transaction["price"]*float(round(initial_amount, -2))))
             logger.info("时间：" + str(transaction["datetime"]))
             # 使用cursor()方法获取操作游标
             cursor = db.cursor()
@@ -217,8 +225,8 @@ class XueQiuFollower(BaseFollower):
             rows = cursor.fetchall()
             if(len(rows)<=0):
                 sql_operation = """INSERT IGNORE  INTO xq_operation(
-                ACCOUNT_ID,STOCK_NAME, STOCK_CODE, STOCK_OPERATION, STOCK_PRICE, STOCK_COUNT, START_REPERTORY, END_REPERTORY, OPERATION_TIME, IS_DEL)
-                VALUES ('1','{}','{}','{}',{},{},{},{},'{}','0')""".format(str(transaction["stock_name"]), str(transaction["stock_symbol"]), str(transaction["action"]), transaction["price"], decimal.Decimal(int(round(initial_amount, -2))), transaction["prev_weight_adjusted"], transaction["target_weight"], str(transaction["datetime"]))
+                ACCOUNT_ID,STOCK_NAME, STOCK_CODE, STOCK_OPERATION, STOCK_PRICE, STOCK_COUNT, COST,START_REPERTORY, END_REPERTORY, OPERATION_TIME, IS_DEL)
+                VALUES ('1','{}','{}','{}',{},{},{},{},{},'{}','0')""".format(str(transaction["stock_name"]), str(transaction["stock_symbol"]), str(transaction["action"]), transaction["price"], decimal.Decimal(int(round(initial_amount, -2))),transaction["price"]*decimal.Decimal(int(round(initial_amount, -2))), transaction["prev_weight_adjusted"], transaction["target_weight"], str(transaction["datetime"]))
                 try:
                     if(sql_operation!=""):
                        logger.info(sql_operation)
@@ -236,22 +244,43 @@ class XueQiuFollower(BaseFollower):
                 IS_HAS = 1
 
             if (len(rowss) > 0):
-                sql_operation = """update xq_history set  STOCK_COUNT = {}, START_REPERTORY = {}, HISTORY_TIME = '{}', IS_HAS = '{}'  where STOCK_CODE = '{}' """.format(
-                     decimal.Decimal(int(round(crrut_amount, -2))), str(transaction["target_weight"]),
+                # 计算平均价格
+                cursor.execute(
+                    "SELECT AVG(STOCK_PRICE) FROM xq_operation WHERE stock_code='" + str(transaction["stock_symbol"]) + "' ")
+                # 使用 fetchall 函数，将结果集（多维元组）存入 rows 里面
+                rowsxq = cursor.fetchall()
+                ave_price = 0
+                for row in rowsxq:
+                    ave_price = row[0]
+
+                #查询股票当前价格
+                # data = {
+                #     "code": str(transaction["stock_symbol"]),
+                #     "size": "300",
+                #     "key": "47bce5c74f",
+                #     "market": self.account_config["portfolio_market"],
+                # }
+                # cur = self.s.get(self.SEARCH_STOCK_URL, params=data)
+                # stockss = json.loads(cur.text)
+                # stockss = stockss["stocks"]
+                # curstock = None
+                # if len(stockss) > 0:
+                #     curstock = stockss[0]
+                # logger.info("testsssssss:" + str(stockss))
+                sql_xq_history = """update xq_history set  STOCK_COUNT = {},AVE_PRICE = {}, START_REPERTORY = {}, HISTORY_TIME = '{}', IS_HAS = '{}'  where STOCK_CODE = '{}' """.format(
+                     decimal.Decimal(int(round(crrut_amount, -2))), ave_price, str(transaction["target_weight"]),
                     str(transaction["datetime"]), IS_HAS, str(transaction["stock_symbol"]))
                 try:
-                    if (sql_operation != ""):
-                        logger.info(sql_operation)
-                        cursor.execute(sql_operation)  # 执行sql语句
+                    if (sql_xq_history != ""):
+                        logger.info(sql_xq_history)
+                        cursor.execute(sql_xq_history)  # 执行sql语句
                 except Exception:
                     logger.error("发生异常2", Exception)
             else:
                 sql_operation = """INSERT IGNORE  INTO xq_history(
-                                ACCOUNT_ID,STOCK_NAME, STOCK_CODE, STOCK_COUNT, START_REPERTORY, HISTORY_TIME, IS_HAS, IS_DEL)
-                                VALUES ('1','{}','{}','{}',{},'{}',{},'0')""".format(
-                    str(transaction["stock_name"]), str(transaction["stock_symbol"]), decimal.Decimal(int(round(initial_amount, -2))),
-                    transaction["target_weight"], str(transaction["datetime"]),
-                    IS_HAS, '0')
+                                ACCOUNT_ID,STOCK_NAME, STOCK_CODE, STOCK_COUNT, AVE_PRICE, START_REPERTORY, HISTORY_TIME, IS_HAS, IS_DEL)
+                                VALUES ('1','{}','{}',{},{},'{}','{}',{},'0')""".format(
+                    str(transaction["stock_name"]), str(transaction["stock_symbol"]), int(round(initial_amount, -2)), transaction["price"], transaction["target_weight"], str(transaction["datetime"]),IS_HAS, '0')
                 try:
                     if (sql_operation != ""):
                         logger.info(sql_operation)
@@ -260,6 +289,10 @@ class XueQiuFollower(BaseFollower):
                     logger.error("发生异常3", Exception)
                 db.commit()  # 提交到数据库执行
         cursor.execute("update xq_account set TOTAL_BALANCE = {} where  ACCOUNT_ID = '1' ".format(assets))
+        # 使用 fetchall 函数，将结果集（多维元组）存入 rows 里面
+        rows = cursor.fetchall()
+
+
         db.commit()  # 提交到数据库执行
         # 关闭数据库连接
         db.close()
