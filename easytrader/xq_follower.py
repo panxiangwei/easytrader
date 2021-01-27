@@ -12,6 +12,7 @@ from easytrader.log import logger
 from easytrader.utils.misc import parse_cookies_str
 import pymysql
 import decimal
+from decimal import *
 
 class XueQiuFollower(BaseFollower):
     LOGIN_PAGE = "https://www.xueqiu.com"
@@ -25,6 +26,7 @@ class XueQiuFollower(BaseFollower):
         super().__init__()
         self._adjust_sell = None
         self._users = None
+        self._cookies = ""
 
     def login(self, user=None, password=None, **kwargs):
         """
@@ -42,17 +44,12 @@ class XueQiuFollower(BaseFollower):
         self.s.headers.update(headers)
 
         self.s.get(self.LOGIN_PAGE)
-
+        self._cookies = cookies
         cookie_dict = parse_cookies_str(cookies)
         self.s.cookies.update(cookie_dict)
 
-        # self.account_config = {
-        #     "cookies": kwargs["cookies"],
-        #     "portfolio_code": kwargs["portfolio_code"],
-        #     "portfolio_market": kwargs["portfolio_market"],
-        # }
 
-        logger.info("登录成功")
+        logger.info("xq_follower登录成功")
 
     def follow(  # type: ignore
         self,
@@ -188,12 +185,17 @@ class XueQiuFollower(BaseFollower):
 
         sql_operation = ""
         for transaction in transactions:
-            weight_diff = self.none_to_zero(transaction["target_weight"]) - self.none_to_zero(
-                transaction["prev_weight_adjusted"]
-            )
+            weight_diff = self.none_to_zero(transaction["target_weight"]) - self.none_to_zero(transaction["prev_weight_adjusted"])
 
-            initial_amount = abs(weight_diff) / 100 * assets / transaction["price"]
-            crrut_amount = abs(self.none_to_zero(transaction["target_weight"])) / 100 * assets / transaction["price"]
+            start_amount = 0
+            initial_amount = 0
+            crrut_amount = 0
+            if(abs(weight_diff)!=0):
+               initial_amount = abs(weight_diff) / 100 * assets / transaction["price"]
+            if (self.none_to_zero(transaction["prev_weight_adjusted"]) != 0):
+               start_amount = abs(self.none_to_zero(transaction["prev_weight_adjusted"])) / 100 * assets / transaction["price"]
+            if (self.none_to_zero(transaction["target_weight"]) != 0):
+               crrut_amount = abs(self.none_to_zero(transaction["target_weight"])) / 100 * assets / transaction["price"]
 
             transaction["datetime"] = datetime.fromtimestamp(
                 transaction["updated_at"] // 1000
@@ -226,7 +228,7 @@ class XueQiuFollower(BaseFollower):
             if(len(rows)<=0):
                 sql_operation = """INSERT IGNORE  INTO xq_operation(
                 ACCOUNT_ID,STOCK_NAME, STOCK_CODE, STOCK_OPERATION, STOCK_PRICE, STOCK_COUNT, COST,START_REPERTORY, END_REPERTORY, OPERATION_TIME, IS_DEL)
-                VALUES ('1','{}','{}','{}',{},{},{},{},{},'{}','0')""".format(str(transaction["stock_name"]), str(transaction["stock_symbol"]), str(transaction["action"]), transaction["price"], decimal.Decimal(int(round(initial_amount, -2))),transaction["price"]*decimal.Decimal(int(round(initial_amount, -2))), transaction["prev_weight_adjusted"], transaction["target_weight"], str(transaction["datetime"]))
+                VALUES ('1','{}','{}','{}',{},{},{},{},{},'{}','0')""".format(str(transaction["stock_name"]), str(transaction["stock_symbol"]), str(transaction["action"]), Decimal.from_float(transaction["price"]), int(round(initial_amount, -2)), transaction["price"]*int(round(initial_amount, -2)), transaction["prev_weight_adjusted"], transaction["target_weight"], str(transaction["datetime"]))
                 try:
                     if(sql_operation!=""):
                        logger.info(sql_operation)
@@ -240,7 +242,7 @@ class XueQiuFollower(BaseFollower):
             rowss = cursor.fetchall()
             IS_HAS = 0
             if (str(transaction["target_weight"]) is "0.00" or str(transaction["target_weight"]) is "0" or str(
-                    transaction["target_weight"]) is "0.0"):
+                    transaction["target_weight"]) is "0.0" or crrut_amount == 0):
                 IS_HAS = 1
 
             if (len(rowss) > 0):
@@ -253,26 +255,12 @@ class XueQiuFollower(BaseFollower):
                 for row in rowsxq:
                     ave_price = row[0]
 
-                #查询股票当前价格
-                # data = {
-                #     "code": str(transaction["stock_symbol"]),
-                #     "size": "300",
-                #     "key": "47bce5c74f",
-                #     "market": self.account_config["portfolio_market"],
-                # }
-                # cur = self.s.get(self.SEARCH_STOCK_URL, params=data)
-                # stockss = json.loads(cur.text)
-                # stockss = stockss["stocks"]
-                # curstock = None
-                # if len(stockss) > 0:
-                #     curstock = stockss[0]
-                # logger.info("testsssssss:" + str(stockss))
                 sql_xq_history = """update xq_history set  STOCK_COUNT = {},AVE_PRICE = {}, START_REPERTORY = {}, HISTORY_TIME = '{}', IS_HAS = '{}'  where STOCK_CODE = '{}' """.format(
                      decimal.Decimal(int(round(crrut_amount, -2))), ave_price, str(transaction["target_weight"]),
                     str(transaction["datetime"]), IS_HAS, str(transaction["stock_symbol"]))
                 try:
                     if (sql_xq_history != ""):
-                        logger.info(sql_xq_history)
+                        # logger.info(sql_xq_history)
                         cursor.execute(sql_xq_history)  # 执行sql语句
                 except Exception:
                     logger.error("发生异常2", Exception)
@@ -280,10 +268,10 @@ class XueQiuFollower(BaseFollower):
                 sql_operation = """INSERT IGNORE  INTO xq_history(
                                 ACCOUNT_ID,STOCK_NAME, STOCK_CODE, STOCK_COUNT, AVE_PRICE, START_REPERTORY, HISTORY_TIME, IS_HAS, IS_DEL)
                                 VALUES ('1','{}','{}',{},{},'{}','{}',{},'0')""".format(
-                    str(transaction["stock_name"]), str(transaction["stock_symbol"]), int(round(initial_amount, -2)), transaction["price"], transaction["target_weight"], str(transaction["datetime"]),IS_HAS, '0')
+                    str(transaction["stock_name"]), str(transaction["stock_symbol"]), int(round(initial_amount, -2)), transaction["price"], transaction["target_weight"], str(transaction["datetime"]), IS_HAS, '0')
                 try:
                     if (sql_operation != ""):
-                        logger.info(sql_operation)
+                        # logger.info(sql_operation)
                         cursor.execute(sql_operation)  # 执行sql语句
                 except Exception:
                     logger.error("发生异常3", Exception)
@@ -291,7 +279,40 @@ class XueQiuFollower(BaseFollower):
         cursor.execute("update xq_account set TOTAL_BALANCE = {} where  ACCOUNT_ID = '1' ".format(assets))
         # 使用 fetchall 函数，将结果集（多维元组）存入 rows 里面
         rows = cursor.fetchall()
+        # 计算当前持仓盈亏
+        cursor.execute("SELECT * FROM xq_history where IS_HAS = '0' ")
+        xq_history_rows = cursor.fetchall()
+        for row in xq_history_rows:
 
+            # 查询股票当前价格
+            self.account_config = {
+                "cookies": self._cookies,
+                "portfolio_code": row[3],
+                "portfolio_market": "cn",
+            }
+            # logger.info("account_config:" + str(self.account_config))
+            data = {
+                "code": row[3],
+                "size": "300",
+                "key": "47bce5c74f",
+                "market": self.account_config["portfolio_market"],
+            }
+            cur = self.s.get(self.SEARCH_STOCK_URL, params=data)
+            stockss = json.loads(cur.text)
+            stockss = stockss["stocks"]
+            curstock = None
+            if len(stockss) > 0:
+                curstock = stockss[0]
+                # logger.info("testsssssss:" + str(curstock["current"]))
+                # logger.info("testsssssss:" + str(row[4]))
+                update_xq_history = """update xq_history set  PROFIT_LOSS = {}  where STOCK_CODE = '{}' """.format(
+                    Decimal(row[4]*curstock["current"])-Decimal(row[4]*row[10]), row[3])
+                try:
+                    if (update_xq_history != ""):
+                        # logger.info(update_xq_history)
+                        cursor.execute(update_xq_history)  # 执行sql语句
+                except Exception:
+                    logger.error("发生异常2", Exception)
 
         db.commit()  # 提交到数据库执行
         # 关闭数据库连接

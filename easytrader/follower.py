@@ -23,6 +23,7 @@ class BaseFollower(metaclass=abc.ABCMeta):
     LOGIN_PAGE = ""
     LOGIN_API = ""
     TRANSACTION_API = ""
+    SEARCH_STOCK_URL = ""
     CMD_CACHE_FILE = "cmd_cache.pk"
     WEB_REFERER = ""
     WEB_ORIGIN = ""
@@ -35,6 +36,8 @@ class BaseFollower(metaclass=abc.ABCMeta):
         self.s.verify = False
 
         self.slippage: float = 0.0
+
+        self.account_config = {}
 
     def login(self, user=None, password=None, **kwargs):
         """
@@ -55,7 +58,7 @@ class BaseFollower(metaclass=abc.ABCMeta):
         rep = self.s.post(self.LOGIN_API, data=params)
 
         self.check_login_success(rep)
-        logger.info("登录成功")
+        logger.info("follower登录成功")
 
     def _generate_headers(self):
         headers = {
